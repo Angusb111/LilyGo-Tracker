@@ -3,7 +3,7 @@
 #define CONNECTED_TOPIC "connected"
 #define VERSION_TOPIC "version"
 
-#define LOC_UPDATE_TOPIC "location"
+#define LOC_UPDATE_TOPIC "gps"
 #define STATUS_TOPIC "status"
 #define OTA_STATUS_TOPIC "ota_status"
 

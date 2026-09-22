@@ -1,7 +1,35 @@
 #include "communication.h"
-
+#include <time.h>
 #include "util.h"
+static int64_t gps_to_unix(int year, int month, int day,
+                           int hour, int minute, int second)
+{
+    int64_t days = 0;
 
+    for (int y = 1970; y < year; y++) {
+        days += ((y % 4 == 0 && y % 100 != 0) || (y % 400 == 0))
+                ? 366 : 365;
+    }
+
+    const int days_in_month[] =
+        {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+    for (int m = 1; m < month; m++) {
+        days += days_in_month[m - 1];
+
+        if (m == 2 &&
+            ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0)) {
+            days++;
+        }
+    }
+
+    days += day - 1;
+
+    return days * 86400LL
+         + hour * 3600LL
+         + minute * 60LL
+         + second;
+}
 Communication::Communication(TinyGsm* modem,
                              TinyGsmClient* client,
                              Settings* config,
@@ -49,7 +77,7 @@ bool Communication::init(ota::status ota_status)
         String imei = m_modem->getIMEI();
         if (imei.toInt() != 0 && imei.length() > 5) {
             imei_success = true;
-            imei.substring(8, 15).toCharArray(m_nodeId, 8);
+            strcpy(m_nodeId, "TEST");
         } else if (++imei_retries > 10) {
             ERROR("Failed to get IMEI, rebooting");
             reset_modem();
@@ -231,17 +259,35 @@ void Communication::mqtt_callback(char* topic, byte* payload, unsigned int len)
 bool Communication::send_location(location_update* l)
 {
     if (connected_to_mqtt_broker()) {
-        char str[80];
-        sprintf(str,
-                "%.6f,%.6f,%.1f,%.1f,%.1f,%d,%d,%d",
-                l->lat,
-                l->lon,
-                l->speed,
-                l->alt,
-                l->accuracy,
-                l->course,
-                l->vsat,
-                l->usat);
+        char str[200];
+
+        struct tm timeinfo = {};
+        timeinfo.tm_year = l->year - 1900;
+        timeinfo.tm_mon  = l->month - 1;
+        timeinfo.tm_mday = l->day;
+        timeinfo.tm_hour = l->hour;
+        timeinfo.tm_min  = l->minute;
+        timeinfo.tm_sec  = l->second;
+        timeinfo.tm_isdst = 0;
+
+        setenv("TZ", "UTC0", 1);
+        tzset();
+
+        time_t timestamp = mktime(&timeinfo);
+
+        Serial.printf("GNSS: %04d-%02d-%02d %02d:%02d:%02d -> Unix: %lld\n",
+                      l->year, l->month, l->day,
+                      l->hour, l->minute, l->second,
+                      (long long)timestamp);
+
+        snprintf(str, sizeof(str),
+                 "{\"id\":\"%s\",\"t\":%lld,\"lat\":%.6f,\"lon\":%.6f,\"v\":%.2f}",
+                 m_nodeId,
+                 (long long)timestamp,
+                 l->lat,
+                 l->lon,
+                 l->speed);
+
         updateValue(LOC_UPDATE_TOPIC, str);
         return true;
     } else {
@@ -249,16 +295,24 @@ bool Communication::send_location(location_update* l)
     }
 }
 
-bool Communication::send_status(uint8_t soc_in, bool charging)
+bool Communication::send_status(uint8_t soc_in, bool charging, float battery_voltage)
 {
     if (connected_to_mqtt_broker()) {
         int soc = soc_in;
-        if(soc_in == 255)
+
+        if (soc_in == 255)
         {
             soc = -1;
         }
+
         char str[80];
-        sprintf(str, "%d,%d,%d", soc, get_signal_strength(), charging);
+
+        sprintf(str, "%d,%d,%d,%.3f",
+                soc,
+                get_signal_strength(),
+                charging,
+                battery_voltage / 1000.0f);
+
         updateValue(STATUS_TOPIC, str);
         return true;
     } else {

@@ -20,5 +20,5 @@
 #define REED_PIN 0
 #define ACC_SENSOR_PIN 32
 
-#define BATTERY_CAPACITY 3400 //mAh
+#define BATTERY_CAPACITY 2600 //mAh
 #define CHARGING_CURRENT 900 //mA

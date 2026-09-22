@@ -34,21 +34,15 @@ Ui ui = Ui(&device);
 Gnss gnss = Gnss(&modem);
 Communication communications = Communication(&modem, &client, &config, callback_helper);
 
-uint32_t mode_change_timestamp;
 uint32_t last_location_timestamp;
-uint32_t last_movement_timestamp;
 
-static uint32_t time_to_sleep = 60 * 1000; //ms
-static uint32_t movement_timeout = 1 * 60 * 1000; //ms
-static uint32_t location_min_interval = 10 * 1000; //ms
-static uint32_t status_interval = 90 * 1000;
-static uint32_t setting_request_interval = 5 * 60 * 1000;
+static uint32_t location_min_interval = 1000; //ms
+static uint32_t status_interval = 10 * 1000;
+static uint32_t setting_request_interval = 15 * 60 * 1000;
 
 uint32_t last_status_timestamp = -status_interval;
 uint32_t last_setting_request_timestamp = -setting_request_interval; // request settings at every bootup
 TaskHandle_t uiTaskHandle = NULL;
-
-bool periodic_position_sent = false;
 
 void callback_helper(char* topic, byte* payload, unsigned int len)
 {
@@ -105,7 +99,6 @@ void setup()
     }
     startUiTask();
 
-    config.set_mode(system_mode::sleep);
     ui.set_state(Ui::state::single_blink);
 
     if (bootcount != 0) {
@@ -115,179 +108,32 @@ void setup()
     communications.init(ota_status);
     ota_status = ota::status::none;
     bootcount++;
-    mode_change_timestamp = millis();
 }
 
 void loop()
 {
-    // event state machine
-    platform::event event = device.get_event();
 
-    switch (event) {
-        case platform::event::charger_plugged: break;
-        case platform::event::magnet:
-        {
-            INFO("Magnet detected");
-            ui.set_notification();
-            restartUiTask();
-            break;
-        }
-        case platform::event::movement: {
-            last_movement_timestamp = millis();
-            INFO("Movement detected");
-            break;
-        }
-        case platform::event::long_magnet_hold: {
-            WARNING("Restarting modem and device");
-            communications.reset_modem();
-            device.restart();
-            // Should not reach this
-            break;
-        }
-        default: break;
+    // Always-on tracking
+    if (!communications.connected_to_mqtt_broker()) {
+        communications.set_state(Communication::modem_state::mqtt_connected);
     }
 
-    switch (config.get_mode()) {
-        case system_mode::hibernate: {
-            if (util::get_time_diff(mode_change_timestamp) > time_to_sleep) {
-                //set modem to sleep
-                communications.set_state(Communication::modem_state::off);
-                if (communications.modem_is_off()) {
-                    device.set_wake_up_device(platform::wake_up_device::magnet);
-                    config.set_mode(system_mode::sleep);
-                    INFO("Going to deep sleep");
-                    device.deep_sleep();
-                }
-            }
-            break;
-        }
-        case system_mode::sleep: {
-            if (util::get_time_diff(mode_change_timestamp) > time_to_sleep) {
-                communications.set_state(Communication::modem_state::off);
-                if (communications.modem_is_off()) {
-                    device.set_wake_up_device(platform::wake_up_device::magnet);
-                    INFO("Going to light sleep");
-                    Serial.flush();
-                    device.sleep(60 * 60); // sec <-- should be about 1h
-                    // Woken up here
-                    mode_change_timestamp = millis();
-                    communications.set_state(Communication::modem_state::mqtt_connected);
-                    INFO("Woken up from sleep");
-                }
-            } else {
-                communications.set_state(Communication::modem_state::mqtt_connected);
-            }
-            break;
-        }
-        case system_mode::track: {
-            uint32_t timeout = gnss.has_initial_fix() ? movement_timeout : movement_timeout * 5.0;
-            if (util::get_time_diff(last_movement_timestamp) < timeout || gnss.is_moving()
-                || device.charging()) {
-                if (!communications.connected_to_mqtt_broker()) {
-                    communications.set_state(Communication::modem_state::mqtt_connected);
-                }
-                if (!gnss.is_on() && !communications.modem_is_off()) {
-                    gnss.turn_on();
-                }
-
-                else if (!communications.connected_to_mqtt_broker()) {
-                    communications.set_state(Communication::modem_state::mqtt_connected);
-                } else {
-                    // gnss on and connected
-                    if (gnss.has_fix()) {
-                        if (util::get_time_diff(last_location_timestamp) > location_min_interval) {
-                            // send location here
-                            location_update loc;
-                            gnss.get_location(&loc);
-                            communications.send_location(&loc);
-                            INFO("POSITION SENT!");
-                            last_location_timestamp = millis();
-                        }
-                    } else {
-                        INFO("Waiting for GNSS fix");
-                    }
-                }
-            } else //kulunut liikaa aikaa
-            {
-                gnss.turn_off();
-                communications.set_state(Communication::modem_state::off);
-                if (communications.modem_is_off()) {
-                    INFO("Going to sleep");
-                    Serial.flush();
-                    device.set_wake_up_device(platform::wake_up_device::movement);
-                    device.sleep(24*60*60); // 24h
-                    INFO("Woken up from sleep");
-
-                    // here when woken up by movement
-                    last_movement_timestamp = millis();
-                    communications.set_state(Communication::modem_state::mqtt_connected);
-                }
-            }
-
-            break;
-        }
-        case system_mode::ota: {
-            if (communications.get_ota_wifi_details(&ota_wifi_details)) {
-                INFO("Wifi details copied from communication");
-                INFO(ota_wifi_details.wifi_ssid);
-                device.deep_sleep(1);
-            }
-            config.set_mode(system_mode::sleep);
-
-            break;
-        }
-        case system_mode::idle: {
-            // stay connected, idle
-            if (!communications.connected_to_mqtt_broker()) {
-                communications.set_state(Communication::modem_state::mqtt_connected);
-            }
-            break;
-        }
-        case system_mode::periodic_tracking: {
-            if(!periodic_position_sent && util::get_time_diff(last_location_timestamp) < (5*60*1000))
-            {
-                if (!gnss.is_on() && !communications.modem_is_off()) {
-                    gnss.turn_on();
-                }
-                if(!communications.connected_to_mqtt_broker())
-                {
-                    communications.set_state(Communication::modem_state::mqtt_connected);
-                }
-                if(gnss.has_fix() && communications.connected_to_mqtt_broker())
-                {
-                    INFO("Sending periodic location");
-                    location_update loc;
-                    gnss.get_location(&loc);
-                    communications.send_location(&loc);
-                    periodic_position_sent = true;
-                }
-            }
-            else
-            {
-                if(gnss.is_on())
-                {
-                    gnss.turn_off();
-                }
-                if(!communications.modem_is_off())
-                {
-                    communications.set_state(Communication::modem_state::off);
-                }
-                if(!gnss.is_on() && communications.modem_is_off())
-                {
-                    device.set_wake_up_device(platform::wake_up_device::magnet);
-                    INFO("Going to light sleep");
-                    Serial.flush();
-                    device.sleep(config.get_periodic_tracking_interval());
-                    INFO("Woken up");
-                    periodic_position_sent = false; // reset
-                    last_location_timestamp = millis();
-                }
-            }
-            break;
-        }
-        default: break;
+    if (!gnss.is_on() && !communications.modem_is_off()) {
+        gnss.turn_on();
     }
-    
+
+    if (communications.connected_to_mqtt_broker() && gnss.has_fix()) {
+        if (util::get_time_diff(last_location_timestamp) > location_min_interval) {
+            location_update loc;
+            gnss.get_location(&loc);
+            communications.send_location(&loc);
+            INFO("POSITION SENT!");
+            last_location_timestamp = millis();
+        }
+    } else if (!gnss.has_fix()) {
+        INFO("Waiting for GNSS fix");
+    }
+
     // UI states
     if(device.charging() && device.get_soc() == 100)
     {
@@ -307,8 +153,12 @@ void loop()
     }
 
     if (communications.connected_to_mqtt_broker()) {
-        if (util::get_time_diff(last_status_timestamp) > status_interval || event == platform::event::charger_plugged || event == platform::event::charger_unplugged) {
-            communications.send_status(device.get_soc(), device.charging());
+        if (util::get_time_diff(last_status_timestamp) > status_interval) {
+            communications.send_status(
+                device.get_soc(),
+                device.charging(),
+                device.get_voltage()
+            );
             last_status_timestamp = millis();
         }
         if (util::get_time_diff(last_setting_request_timestamp) > setting_request_interval) {

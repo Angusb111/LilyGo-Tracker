@@ -32,7 +32,7 @@ bool Battery::is_charging()
 
 float Battery::get_raw_voltage_from_pin(uint8_t pin)
 {
-    return map(analogRead(pin), 0, 4095, 0, 6600);
+    return ((float)analogRead(pin) / 4095.0f) * 6600.0f * 1.069f;
 }
 
 void Battery::update()

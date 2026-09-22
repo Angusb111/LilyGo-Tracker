@@ -55,6 +55,7 @@ bool Gnss::get_location(location_update* loc)
                                &m_loc.minute,
                                &m_loc.second);
 
+
     loc->lat = m_loc.lat;
     loc->lon = m_loc.lon;
     loc->alt = m_loc.alt;
@@ -62,6 +63,12 @@ bool Gnss::get_location(location_update* loc)
     loc->usat = m_loc.usat;
     loc->accuracy = m_loc.accuracy;
     loc->speed = max(m_loc.speed, 0.0f);
+    loc->year   = m_loc.year;
+    loc->month  = m_loc.month;
+    loc->day    = m_loc.day;
+    loc->hour   = m_loc.hour;
+    loc->minute = m_loc.minute;
+    loc->second = m_loc.second;
 
     bool time_not_changed = m_loc.year == m_old_loc.year && m_loc.month == m_old_loc.month
                             && m_loc.day == m_old_loc.day && m_loc.hour == m_old_loc.hour

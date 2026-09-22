@@ -44,7 +44,7 @@ class Communication
         bool modem_is_off();
         void mqtt_callback(char* topic, byte* payload, unsigned int len);
         bool send_location(location_update* loc);
-        bool send_status(uint8_t soc, bool charging);
+        bool send_status(uint8_t soc_in, bool charging, float battery_voltage);
         bool request_settings();
         bool get_ota_wifi_details(wifi_details*);
         bool send_ota_status(ota::status status);
