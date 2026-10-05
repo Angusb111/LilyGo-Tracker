@@ -1,13 +1,13 @@
-#define PROJECT_NAME "fleetradar" // Project name, is used in MQTT topic
+#define PROJECT_NAME "logyard-poc-iothub"
 
-#define BROKER_HOST "161.65.141.4" // IP or address of the MQTT-broker
-#define BROKER_PORT 1883 // MQTT-broker port, MQTT default port is 1883
-#define BROKER_USER "loader" // MQTT-broker username
-#define BROKER_PASSWD "mTaut35m27" // MQTT-broker password
+#define BROKER_HOST "logyard-poc-iothub.azure-devices.net"
+#define BROKER_PORT 8883
+#define BROKER_USER "logyard-poc-iothub.azure-devices.net/loader-01/?api-version=2021-04-12"
+#define BROKER_PASSWD "SharedAccessSignature sr=logyard-poc-iothub.azure-devices.net%2Fdevices%2Floader-01&sig=B1FHcFMntG1ck6Bre8rbQKnxt5cCS%2FR4kntW41QsC3c%3D&se=1793337774"
 
-#define GSM_PIN "" // PIN-code of the SIM-card, if no PIN-code leave empty ""
-#define APN "internet" // Carrier APN for internet, 1NCE: iot.1nce.net, Elisa/Telia/DNA: internet
-#define GPRS_USER "" // Username for the cellular internet connection
-#define GPRS_PASS "" // Password for the cellular internet connection
+#define GSM_PIN ""
+#define APN "internet"
+#define GPRS_USER ""
+#define GPRS_PASS ""
 
-#define HTTP_OTA_URL "" // Address to the the OTA-update file
+#define HTTP_OTA_URL ""

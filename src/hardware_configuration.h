@@ -1,7 +1,7 @@
 #pragma once
 
 // SIM7000 settings
-#define TINY_GSM_MODEM_SIM7000
+#define TINY_GSM_MODEM_SIM7000SSL
 #define MODEM_BAUDRATE 9600
 #define PIN_DTR 25
 #define MODEM_SERIAL_TX_PIN 27

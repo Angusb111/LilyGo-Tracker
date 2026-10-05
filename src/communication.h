@@ -15,7 +15,7 @@
 #include "settings.h"
 #include "ota.h"
 
-#define MQTT_VERSION MQTT_VERSION_3_1
+#define MQTT_VERSION MQTT_VERSION_3_1_1
 #define TINY_GSM_USE_GPRS true
 
 class Communication
@@ -68,7 +68,7 @@ class Communication
 
         uint8_t m_error;
         ota::status m_ota_status;
-        char m_nodeId[8] = "";
+        char m_nodeId[32] = "";
 
         uint32_t m_status_check_timestamp = 0;
         uint32_t m_mode_change_timestamp = 0;

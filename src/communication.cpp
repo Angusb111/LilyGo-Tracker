@@ -77,7 +77,7 @@ bool Communication::init(ota::status ota_status)
         String imei = m_modem->getIMEI();
         if (imei.toInt() != 0 && imei.length() > 5) {
             imei_success = true;
-            strcpy(m_nodeId, "TEST");
+            strcpy(m_nodeId, "loader-01");
         } else if (++imei_retries > 10) {
             ERROR("Failed to get IMEI, rebooting");
             reset_modem();
@@ -153,42 +153,37 @@ void Communication::reset_modem()
 
 bool Communication::connect_mqtt()
 {
-    char topic_buf[40] = "";
+    INFO("Connecting to Azure IoT Hub...");
 
-    get_topic_name(topic_buf, CONNECTED_TOPIC);
-    bool status = m_mqtt.connect(m_nodeId, BROKER_USER, BROKER_PASSWD, topic_buf, 1, true, "0");
+    Serial.print("SAS token length: ");
+    Serial.println(strlen(BROKER_PASSWD));
+
+    Serial.print("MQTT username length: ");
+    Serial.println(strlen(BROKER_USER));
+
+    Serial.print("m_nodeId = [");
+    Serial.print(m_nodeId);
+    Serial.println("]");
+
+    Serial.print("strlen(m_nodeId) = ");
+    Serial.println(strlen(m_nodeId));
+
+    bool status = m_mqtt.connect(
+        m_nodeId,
+        BROKER_USER,
+        BROKER_PASSWD
+    );
+
     if (!status) {
-        ERROR("MQTT Connect fail");
+        ERROR("Azure MQTT Connect failed");
         ERROR(m_mqtt.state());
         return false;
     }
 
-    INFO("MQTT Connect Success");
-    m_mqtt.publish(topic_buf, "1", true);
-
-    // subscribe to topics
-    get_topic_name(topic_buf, SETTINGS_SUBSCRIBE_TOPIC);
-    m_mqtt.subscribe(topic_buf);
-
-    get_topic_name(topic_buf, ERROR_SUBSCRIBE_TOPIC);
-    m_mqtt.subscribe(topic_buf);
-
-    get_topic_name(topic_buf, OTA_SUBSCRIBE_TOPIC);
-    m_mqtt.subscribe(topic_buf);
-
-    if (m_first_connection) {
-        get_topic_name(topic_buf, VERSION_TOPIC);
-        m_mqtt.publish(topic_buf, VERSION);
-        if(m_ota_status != ota::status::none)
-        {
-            INFO_VALUE("Ota status: ", m_ota_status);
-            send_ota_status(m_ota_status);
-        }
-
-        m_first_connection = false;
-    }
+    INFO("Azure MQTT Connect Success");
 
     m_mqtt.loop();
+
     return true;
 }
 
@@ -258,41 +253,51 @@ void Communication::mqtt_callback(char* topic, byte* payload, unsigned int len)
 
 bool Communication::send_location(location_update* l)
 {
-    if (connected_to_mqtt_broker()) {
-        char str[200];
-
-        struct tm timeinfo = {};
-        timeinfo.tm_year = l->year - 1900;
-        timeinfo.tm_mon  = l->month - 1;
-        timeinfo.tm_mday = l->day;
-        timeinfo.tm_hour = l->hour;
-        timeinfo.tm_min  = l->minute;
-        timeinfo.tm_sec  = l->second;
-        timeinfo.tm_isdst = 0;
-
-        setenv("TZ", "UTC0", 1);
-        tzset();
-
-        time_t timestamp = mktime(&timeinfo);
-
-        Serial.printf("GNSS: %04d-%02d-%02d %02d:%02d:%02d -> Unix: %lld\n",
-                      l->year, l->month, l->day,
-                      l->hour, l->minute, l->second,
-                      (long long)timestamp);
-
-        snprintf(str, sizeof(str),
-                 "{\"id\":\"%s\",\"t\":%lld,\"lat\":%.6f,\"lon\":%.6f,\"v\":%.2f}",
-                 m_nodeId,
-                 (long long)timestamp,
-                 l->lat,
-                 l->lon,
-                 l->speed);
-
-        updateValue(LOC_UPDATE_TOPIC, str);
-        return true;
-    } else {
+    if (!connected_to_mqtt_broker()) {
         return false;
     }
+
+    char str[200];
+
+    int64_t timestamp = gps_to_unix(
+        l->year,
+        l->month,
+        l->day,
+        l->hour,
+        l->minute,
+        l->second
+    );
+
+    Serial.printf(
+        "GNSS: %04d-%02d-%02d %02d:%02d:%02d -> Unix: %lld\n",
+        l->year, l->month, l->day,
+        l->hour, l->minute, l->second,
+        (long long)timestamp
+    );
+
+    snprintf(
+        str,
+        sizeof(str),
+        "{\"id\":\"%s\",\"t\":%lld,\"lat\":%.6f,\"lon\":%.6f,\"v\":%.2f}",
+        m_nodeId,
+        (long long)timestamp,
+        l->lat,
+        l->lon,
+        l->speed
+    );
+
+    const char* topic = "devices/loader-01/messages/events/";
+
+    Serial.print("Azure telemetry: ");
+    Serial.println(str);
+
+    if (m_mqtt.publish(topic, str)) {
+        INFO("Azure GPS packet sent");
+        return true;
+    }
+
+    ERROR("Azure GPS packet failed");
+    return false;
 }
 
 bool Communication::send_status(uint8_t soc_in, bool charging, float battery_voltage)

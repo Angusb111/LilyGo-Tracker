@@ -18,9 +18,10 @@
 #include "src/settings.h"
 #include "src/ui.h"
 #include "src/util.h"
+#include <WiFi.h>
 
 TinyGsm modem = TinyGsm(MODEM_SERIAL);
-TinyGsmClient client = TinyGsmClient(modem);
+TinyGsmClientSecure client = TinyGsmClientSecure(modem);
 
 void callback_helper(char* topic, byte* payload, unsigned int len);
 
@@ -36,8 +37,8 @@ Communication communications = Communication(&modem, &client, &config, callback_
 
 uint32_t last_location_timestamp;
 
-static uint32_t location_min_interval = 1000; //ms
-static uint32_t status_interval = 10 * 1000;
+static uint32_t location_min_interval = 15000; //ms
+static uint32_t status_interval = 900 * 2592000; // 
 static uint32_t setting_request_interval = 15 * 60 * 1000;
 
 uint32_t last_status_timestamp = -status_interval;
@@ -77,26 +78,12 @@ void restartUiTask()
 void setup()
 {
     Serial.begin(115200);
-    WiFi.mode(WIFI_OFF);
+    
+    WiFi.begin();
+    delay(10);
     delay(1000);
-    INFO("SIM7000-tracker, Eero Silfverberg, 2025");
+    INFO("SIM7000-GPS-Azure-Test");
 
-    // OTA mode
-    if (strlen(ota_wifi_details.wifi_ssid) > 0) {
-        INFO("Staring OTA");
-        ota ota_updater = ota();
-        if (ota_updater.try_to_connect_to_wifi(&ota_wifi_details)) {
-            INFO("Connected to OTA wifi");
-            delay(100);
-            ota_status = ota_updater.start();
-        } else {
-            ota_status = ota::status::wifi_failed;
-            ERROR("Failed to connect to wifi");
-        }
-        strcpy(ota_wifi_details.wifi_ssid, "");
-        strcpy(ota_wifi_details.wifi_passwd, "");
-        device.restart();
-    }
     startUiTask();
 
     ui.set_state(Ui::state::single_blink);
